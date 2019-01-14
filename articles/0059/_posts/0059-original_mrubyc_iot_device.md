@@ -69,7 +69,10 @@ mruby/cはmrubyのバイトコードをそのまま用いることを前提と�
 さきほど、言語としての機能が制限されていると、書きましたが、一例として、mruby/cでは、mrubyと比較して、mrbgemsという機能拡張の仕組みがないため、mrubyがmrbgemsで実現している機能を実現するためには独自にポーティングする必要があります。
 その他、例外やモジュールを削ったりなど、大きな違いがあります。
 
-あまり定量的には説明が難しいポイントですが、機能を削ったことにより実装の規模が小さくなっています。
+もう一点大きな違いとして、mruby/cではマルチタスク機能をデフォルトでサポートしている点があります。マイコンを使った開発では、外部のデバイスの監視や応答待ちなどで非同期の処理が多く発生します。mruby/cでは、そのような処理を実装するために簡易的なマルチタスク機能が利用できます。
+mruby/cでは、タスク間で共通のクラス定義、グローバル変数空間を参照しており、mutexで排他処理を実装可能です。
+
+その他には、定量的な説明が難しいポイントですが、機能を削ったことにより実装の規模が小さくなっている点があります。
 実装がシンプルなので、ソースコードを眺めたときに各処理の動きの見当が付きやすく、ポーティングが非常にやりやすい点は、個人的にはとても嬉しいメリットと感じています。
 
 ## 開発環境の構築
@@ -127,7 +130,7 @@ SORACOM Air SIM for セルラーは、SORACOMが販売しているデータ通�
 詳しくは以下を参照下さい。
 https://soracom.jp/services/air/
 
-基本的にはAmazonなどで購入して、公式サイトの手順に従ってWeb画面上で開通処理を行うだけですぐ使えるようになります。
+Amazonなどで購入して、公式サイトの手順に従ってWeb画面上で開通処理を行うだけですぐ使えるようになります。
 通信費も安いので、個人でちょっと試したい場合にも気軽に使えると思います。
 
 こちらもあらかじめ開通の手続きが完了していることを前提とします。
@@ -152,7 +155,7 @@ https://github.com/mrubyc/mrubyc からmruby/cのソースコードを取得し�
 #### Arduinoのライブラリの作成
 
 まず、Arduinoのライブラリを作成します。
-例えばMacの場合、"~/Documents/Arduino/libraries/"のようなディレクトリの下に"libmrubycForWioLTEArduino"というディレクトリを作成して、以下のような構成にします。
+例えばMacの場合、`~/Documents/Arduino/libraries/`のようなディレクトリの下に`libmrubycForWioLTEArduino`というディレクトリを作成して、以下のような構成にします。
 
 ```
  libmrubycForWioLTEArduino/
@@ -180,7 +183,7 @@ includes=libmrubyc.h
 
 #### ソースのコピー
 
-取得したmruby/cのソースのから、src/配下のファイルを、先程作成したlibmrubycForWioLTEArduino/src にコピーします。
+取得したmruby/cのソースのから、src/配下のファイルを、先程作成した`libmrubycForWioLTEArduino/src`にコピーします。
 
 mruby/cのsrcには、hal_***というディレクトリが含まれていますが、これは、各種のボードに依存している機能を切り出しものです。halは"Hardware Abstraction Layer"の略（のはず）です。
 以下のように対応します。
@@ -188,16 +191,41 @@ mruby/cのsrcには、hal_***というディレクトリが含まれています
  * hal_posix/をhal/にリネームする
  * その他のhal_***/は削除する
 
-#### HALの実装
+#### HAL(Hardware Abstraction Layer)の実装
 
-コンソールの文字列出力がhal.hにインライン関数hal_writeとして定義されているのですが、中身はwrite(1, buf, nbytes);となっていて、そのままでは期待通り動きません。
+コンソールの文字列出力がhal.hにインライン関数`hal_write`として定義されているのですが、中身は`write(1, buf, nbytes)`となっていて、そのままでは期待通り動きません。
 
-コンソールの文字列の出力先をどこにするかは、ライブラリの使用者が自由に決めてHAL(Hardware Abstraction Layer)として実装することが必要です。
+コンソールの文字列の出力先は、ライブラリの開発者が環境に合わせて実装することが必要です。
 
-筆者のライブラリでは、Serial.printを使った出力に繋いでいます。
-注意点として、ArduinoのAPIはC++で実装されているので、hal.cからは直接呼べません。hal.cppを準備するなどして、CとC++の間を繋ぐ必要があります。
+Wio LTE Arduino Libraryでは、SerialUSB.printがデバッグ用シリアルへの出力を行うので、これを用いています。
+注意点として、SerialUSB.printのようなArduinoのAPIはC++で実装されているので、hal.cからは直接呼べません。hal.cppを準備するなどして、CとC++の間を繋ぐ必要があります。
 
-実際にポーティングした結果のソースコードを下記のリポジトリにアップしています。
+`inline static int hal_write()`を以下のような関数に書き換えます。
+
+```c
+int hal_write(int fd, const void *buf, int nbytes)
+{
+	char* t = (char*)buf;
+	char tbuf[2];
+	if(nbytes==1){
+		tbuf[0]=*t;
+		tbuf[1]='\0';
+		hal_write_string(tbuf);
+		return nbytes;
+	}
+	hal_write_string(t);
+	return nbytes;
+}
+```
+
+もう一点、HALではタイマ割り込みの設定も考慮も必要です。mruby/cではマルチタスク機能を実現するために一定間隔でVMの処理を中断して、別のタスクのVMに処理を切り替える必要があります。
+そのためにはハードウェアの周期的な割り込み機能を使うのがシンプルですが、それが使えない場合は、vm_config.hに`#define MRBC_NO_TIMER`という定義を追記すると、ソフト処理でのタスク切換えを行うようになります。
+
+このようなポイントに注意してコンパイルが
+
+実際にポーティングした結果のソースコードを下記のリポジトリにアップしていますので、詳細はそちらを参考にしてみてください。
+
+https://github.com/kishima/libmrubycForWioLTEArduino
 
 ### C拡張の書き方
 
@@ -224,7 +252,7 @@ UltraSonic.init
 
 val = UltraSonic.read
 
-Wio.send("soracom",1111,"{distance: #{val}}")
+Wio.send("harvest.soracom.io",8514,"{distance: #{val}}")
 
 ```
 

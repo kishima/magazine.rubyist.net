@@ -61,10 +61,18 @@ githubで公開されているリポジトリのReadmeには以下のように�
 mrubyとmruby/cは名前が似ていますが、何が違うのでしょうか？
 
 mruby/cはmrubyのバイトコードをそのまま用いることを前提としており、mrubyのVMに相当する部分だけを提供しています。
+その構造の違いを簡単に図で表してみようと思います。
+以下がmrubyの構成となっています。
 
-違いを簡単に図で表してみました。
+![mrubyの構成](image/0059-original_mrubyc_iot_device/mruby_arch.jpg)
 
-■図
+スクリプトをParserで構文解析し、Code Generatorでバイトコードにコンパイルします。そしてVirtual Machine(VM)がバイトコードを実行します。mrubyでは処理の複雑なコンパイルまでの処理を別環境で行い、VMだけ実環境で動かすことができるようにVMを独立させることができる構造になっています。
+
+mruby/cの構成を以下に示します。
+
+![mruby/cの構成](image/0059-original_mrubyc_iot_device/mrubyc_arch.jpg)
+
+mruby/cでは実はParserとCode Generatorの部分はmrubyの実装をそのまま使用しています。mruby/cではバイトコードの生成はPCなどで行い前提とし、VMだけを独自のコンパクトな実装を用いることでmrubyとの互換性をある程度保ちつつマイコン向けの環境を提供しています。
 
 さきほど、言語としての機能が制限されていると、書きましたが、一例として、mruby/cでは、mrubyと比較して、mrbgemsという機能拡張の仕組みがないため、mrubyがmrbgemsで実現している機能を実現するためには独自にポーティングする必要があります。
 その他、例外やモジュールを削ったりなど、大きな違いがあります。
@@ -91,7 +99,7 @@ SIMは、個人でも簡単に手に入って、初期費用も安いSORACOM Air
 
 Wio LTEに接続するセンサのサンプルとして、たまたま手元にあったSeeedの超音波距離センサを使ってみます。
 
-その他の準備として、PCにはArduinoIDEがインストールされており、ビルド済みのmrubyのバイナリが存在することを前提とします。
+その他の準備として、PCにはArduinoIDEがインストールされており、ビルド済みのmrubyのバイナリが存在することを前提とします。mrubyについては最新のmruby2.0ではバイトコードフォーマットが更新されており、mruby/cと対応しないため、あえて古い1.3を使用しています。
 
 ### WioLTEの説明
 
@@ -262,13 +270,23 @@ mruby/cをポーティングしただけの状態だと、シリアルのコン�
 
 #### クラスの追加
 
+C言語で定義したクラスを追加するためには、`mrbc_define_class()`という関数を使用します。
+以下に超音波センサのための`UltraSonic`クラスを追加する例を示しています。
+
 ```
 	mrb_class *class_ultrasonic;
 	class_ultrasonic = mrbc_define_class(0, "UltraSonic", mrbc_class_object);
 ```
 
+`mrbc_define_class()`の第一引数は特に考えず0で問題ないです。第二引数にRubyのクラス名を与えます。そして第三引数に親クラスを指定します。この場合は特別な親クラスを持つ必要がないので、オブジェクトクラス（mrbc_class_object）を親クラスとしています。
+
+`mrbc_define_class()`の戻り値にはクラスオブジェクトを表すmrb_class構造体へのポインタが返って来ます。このポインタは破棄しても、`UltraSonic`クラスのクラスオブジェクトはグローバル定数として記憶されているので、定義が消えることはありません。
 
 #### メソッドの追加
+
+次に、`UltraSonic`クラスに、 距離センサの測値を返す、`read`メソッドを追加してみます。
+メソッドの追加には、`mrbc_define_class()`関数を使用します。
+以下に、その例を示します。
 
 ```C
 Ultrasonic ultrasonic(WIOLTE_D38);
@@ -286,7 +304,19 @@ void define_ultrasonic_class(){
 
 }
 ```
-## 動かし方
+`mrbc_define_class()`関数の第一引数は、クラス定義と同じく0を指定して、第二引数にメソッドに対応するクラスをしていします。ここで、先程の`class_ultrasonic`を与えます。
+第三引数には、メソッド名である`read`を与えます。そして第四引数には、メソッドの処理を行う関数へのポインタを与えます。
+
+メソッドの処理を表す関数の型は`void (mrb_vm *vm, mrb_value *v, int argc )`と決まっており、ここにメソッドの引数に関する全ての情報が格納されています。
+
+このようにして、自由にC/C++言語で書かれたライブラリとmruby/cの連携を図ることができます。
+より詳しい情報はヘッダファイルの定義などを参照すると理解が進むかと思います。
+
+先程も紹介した下記のリポジトリに簡単ですが、Wio LTEのAPIなどをポーティングした結果も公開しています。こちらを利用して超音波センサとWio LTEをmruby/cで動かしてみましょう。
+
+https://github.com/kishima/libmrubycForWioLTEArduino
+
+## 実機での動かし方
 
 自分で作ったmrubyのメソッドを利用したアプリを、実際に動かしてみましょう。
 
@@ -299,17 +329,16 @@ void define_ultrasonic_class(){
 以下のようなスクリプトをtest.rbという名前で保存します。
 
 ```Ruby
+Wio.power_supply_LTE(true)
+Wio.turnon_or_reset
+Wio.activate("soracom.io", "sora", "sora")
+sock = Wio.sock_open_udp("harvest.soracom.io",8514)
 
-Wio.init
-#Wio.power_supply_LTE
-#Wio.turnon_or_reset
-#Wio.activate("soracom.io", "sora", "sora")
-
-loop do
 val = UltraSonic.read
-puts "{distance: #{val}}"
-# Wio.send("harvest.soracom.io",8514,"{distance: #{val}}")
-end
+Wio.sock_send(sock,"{\"distance\":#{val}}")
+Wio.sock_close(sock)
+
+puts "done"
 ```
 
 このスクリプトを以下のようなmrubyのコマンドでバイトコードを16進数配列で表したC言語ファイルに変換します。

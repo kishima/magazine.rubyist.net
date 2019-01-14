@@ -316,7 +316,7 @@ done
 
 SORACOMの管理画面から見た結果を下記に示します。
 
-![SORACOM Harvet画面](0059-original_mrubyc_iot_device/soracom_harvest.jpg)
+![SORACOM Harvet画面](image/0059-original_mrubyc_iot_device/soracom_harvest.png)
 
 実際に測定した距離の数値が転送されていることが確認できました！
 

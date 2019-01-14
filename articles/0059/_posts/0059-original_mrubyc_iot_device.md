@@ -95,6 +95,8 @@ Wio LTEに接続するセンサのサンプルとして、たまたま手元に�
 
 ### WioLTEの説明
 
+![Wio LTE JP version](image/0059-original_mrubyc_iot_device/wiolte.jpg)
+
 通信ボードの[Wio LTE JP version](https://soracom.jp/products/module/wio_lte/)について説明します。本記事では以降、Wio LTE JP versionのことを、特に断りの無い限りWio LTEと呼びます。
 
 Wio LTEは中国深センのSeeed Studio社製のLTE通信ボードです。
@@ -141,7 +143,7 @@ Amazonなどで購入して、公式サイトの手順に従ってWeb画面上�
 
 Seeed社の超音波距離センサを使用します。
 
-■図
+![超音波距離センサ](image/0059-original_mrubyc_iot_device/ultrasonic.jpg)
 
 GroveというSeeed社が提供しているインタフェースに準拠しており、Wio LTEのGroveコネクタに接続するだけで使用できて簡単です。
 詳しくは下記を参照下さい。
@@ -269,6 +271,10 @@ mruby/cをポーティングしただけの状態だと、シリアルのコン�
 
 自分で作ったmrubyのメソッドを利用したアプリを、実際に動かしてみましょう。
 
+部品を接続するとこんな感じになります。
+
+![Wio LTEにセンサを取り付けた状態](image/0059-original_mrubyc_iot_device/testing.jpg)
+
 ### WioLTE実機への転送
 
 以下のようなスクリプトをtest.rbという名前で保存します。
@@ -316,7 +322,7 @@ done
 
 SORACOMの管理画面から見た結果を下記に示します。
 
-![SORACOM Harvet画面](image/0059-original_mrubyc_iot_device/soracom_harvest.png)
+<img src="image/0059-original_mrubyc_iot_device/soracom_harvest.png" width="500">
 
 実際に測定した距離の数値が転送されていることが確認できました！
 

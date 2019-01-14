@@ -83,13 +83,15 @@ mruby/cでは、タスク間で共通のクラス定義、グローバル変数�
 最初にモバイル通信網にデータを送ってみることを目標とすると書きましたが、特にデバイス単体で通信を行うようなデバイスで、国内で個人で手に入るものはあまり選択肢が多くありません。
 （海外で売られているデバイスは日本の周波数帯と合わないか、もしくは日本での認可を得ていないことが多いので注意です）
 
-今回はWioLTEというLTEでデータ通信可能なボードを利用したいと思います。
+今回はWio LTEというLTEでデータ通信可能なボードを利用したいと思います。
 
 またボード単体では基地局と通信できないので、日本のモバイル通信網に接続可能なSIMカードも必要です。
 
 SIMは、個人でも簡単に手に入って、初期費用も安いSORACOM Air SIMを利用します。
 
-またPCにはArduinoIDEがインストールされており、ビルド済みのmrubyのバイナリが存在することを前提とします。
+Wio LTEに接続するセンサのサンプルとして、たまたま手元にあったSeeedの超音波距離センサを使ってみます。
+
+その他の準備として、PCにはArduinoIDEがインストールされており、ビルド済みのmrubyのバイナリが存在することを前提とします。
 
 ### WioLTEの説明
 
@@ -135,11 +137,24 @@ Amazonなどで購入して、公式サイトの手順に従ってWeb画面上�
 
 こちらもあらかじめ開通の手続きが完了していることを前提とします。
 
+### 超音波距離センサ
+
+Seeed社の超音波距離センサを使用します。
+
+■図
+
+GroveというSeeed社が提供しているインタフェースに準拠しており、Wio LTEのGroveコネクタに接続するだけで使用できて簡単です。
+詳しくは下記を参照下さい。
+http://wiki.seeedstudio.com/Grove-Ultrasonic_Ranger/
+
+Groveシリーズのセンサ類は、Arduino用にドライバライブラリが公開されているのがとてもありがたいです。
+こちらのUltrasonicのライブラリも公式の手順に従って、Arduinoにインストール済みであることを前提とします。
+
 ## 実装方法
 
 ここからが本題です。
 
-どうやってmruby/cをWio LTEの上で動かすのか、その手順について説明していきます。
+mruby/cをWio LTEの上で動かすための手順について説明していきたいと思います。
 
 ### mruby/cのポーテイング
 
@@ -197,12 +212,13 @@ mruby/cのsrcには、hal_***というディレクトリが含まれています
 
 コンソールの文字列の出力先は、ライブラリの開発者が環境に合わせて実装することが必要です。
 
-Wio LTE Arduino Libraryでは、SerialUSB.printがデバッグ用シリアルへの出力を行うので、これを用いています。
-注意点として、SerialUSB.printのようなArduinoのAPIはC++で実装されているので、hal.cからは直接呼べません。hal.cppを準備するなどして、CとC++の間を繋ぐ必要があります。
+Wio LTE Arduino Libraryでは、`SerialUSB.print`がデバッグ用シリアルへの出力を行うので、これを用いています。
+注意点として、`SerialUSB.print`のようなArduinoのAPIはC++で実装されているので、hal.cからは直接呼べません。hal.cppを準備するなどして、CとC++の間を繋ぐ必要があります。
 
-`inline static int hal_write()`を以下のような関数に書き換えます。
+実装例を挙げると、`inline static int hal_write()`を以下のような関数に書き換えます。
+（入力が2文字以上の場合、かならずヌル文字が終端にあることが前提になっています）
 
-```c
+```C
 int hal_write(int fd, const void *buf, int nbytes)
 {
 	char* t = (char*)buf;
@@ -218,10 +234,20 @@ int hal_write(int fd, const void *buf, int nbytes)
 }
 ```
 
+そして、hal.cppというファイルを作成し、`hal_write_string()`を以下のように実装します。
+
+```C++
+extern "C" void hal_write_string(char* text){
+  SerialUSB.print(text);
+}
+```
+
+このようにすることで、スクリプト上の`puts`の出力先がデバッグ用のシリアルになります。
+
 もう一点、HALではタイマ割り込みの設定も考慮も必要です。mruby/cではマルチタスク機能を実現するために一定間隔でVMの処理を中断して、別のタスクのVMに処理を切り替える必要があります。
 そのためにはハードウェアの周期的な割り込み機能を使うのがシンプルですが、それが使えない場合は、vm_config.hに`#define MRBC_NO_TIMER`という定義を追記すると、ソフト処理でのタスク切換えを行うようになります。
 
-このようなポイントに注意してコンパイルが
+このようなポイントに注意することで、mruby/cの機能をArduinoライブラリとして利用可能となります。
 
 実際にポーティングした結果のソースコードを下記のリポジトリにアップしていますので、詳細はそちらを参考にしてみてください。
 
@@ -230,12 +256,14 @@ https://github.com/kishima/libmrubycForWioLTEArduino
 ### C拡張の書き方
 
 mruby/cをポーティングしただけの状態だと、シリアルのコンソールに文字が出力されるだけで、他に何もすることができません。
+ボード固有の機能を利用するためにはC言語で書かれている機能をmruby/cから呼び出す必要があります。RubyのメソッドをC言語で実装するための方法を説明します。
 
 #### クラスの追加
 
-#### メソッドの追加s
 
-### LTEでWebサーバにデータを送るAPIの作成
+
+#### メソッドの追加
+
 
 ## 動かし方
 
@@ -245,15 +273,18 @@ mruby/cをポーティングしただけの状態だと、シリアルのコン�
 
 以下のようなスクリプトをtest.rbという名前で保存します。
 
-```ruby
+```Ruby
 
 Wio.init
-UltraSonic.init
+#Wio.power_supply_LTE
+#Wio.turnon_or_reset
+#Wio.activate("soracom.io", "sora", "sora")
 
+loop do
 val = UltraSonic.read
-
-Wio.send("harvest.soracom.io",8514,"{distance: #{val}}")
-
+puts "{distance: #{val}}"
+# Wio.send("harvest.soracom.io",8514,"{distance: #{val}}")
+end
 ```
 
 このスクリプトを以下のようなmrubyのコマンドでバイトコードを16進数配列で表したC言語ファイルに変換します。
@@ -273,9 +304,19 @@ DFUモードでは、通常のプログラムは起動せず、プログラム�
 では実際に動かしてみましょう。書き込んだ後にボードのリセットボタンを押すと、書き込んだプログラムが起動します。
 
 動かしてみた結果のシリアルログを示します。
+```
+— begin setup
+— run mruby script
+class_wio_power_supply_LTE
+class_wio_turnon_or_reset
+TurnOnOrReset OK
+send:{“distance”:158}
+done
+```
 
+SORACOMの管理画面から見た結果を下記に示します。
 
-SORACOMの管理画面から見た結果sを下記に示します。
+![SORACOM Harvet画面](image/0059-original_mrubyc_iot_device/soracom_harvest.jpg)
 
 実際に測定した距離の数値が転送されていることが確認できました！
 

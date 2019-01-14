@@ -145,6 +145,8 @@ https://soracom.jp/services/air/
 Amazonなどで購入して、公式サイトの手順に従ってWeb画面上で開通処理を行うだけですぐ使えるようになります。
 通信費も安いので、個人でちょっと試したい場合にも気軽に使えると思います。
 
+今回はSORACOM Harvestという文字列で送ったデータをSORACOMのサーバで確認できる仕組みを使って実験してみたいと思います。
+
 こちらもあらかじめ開通の手続きが完了していることを前提とします。
 
 ### 超音波距離センサ
@@ -309,10 +311,13 @@ void define_ultrasonic_class(){
 
 メソッドの処理を表す関数の型は`void (mrb_vm *vm, mrb_value *v, int argc )`と決まっており、ここにメソッドの引数に関する全ての情報が格納されています。
 
-このようにして、自由にC/C++言語で書かれたライブラリとmruby/cの連携を図ることができます。
-より詳しい情報はヘッダファイルの定義などを参照すると理解が進むかと思います。
+距離センサのオブジェクト`ultrasonic`は、`WIOLTE_D38`という値を与えて初期化しています。`WIOLTE_D38`がWio LTE基板上の接続端子を表しています。
+`ultrasonic`に対して、`MeasureInCentimeters()`という関数で得た距離センサの測定値(cm)を`SET_INT_RETURN`というマクロでメソッドの戻り値に設定しています。
 
-先程も紹介した下記のリポジトリに簡単ですが、Wio LTEのAPIなどをポーティングした結果も公開しています。こちらを利用して超音波センサとWio LTEをmruby/cで動かしてみましょう。
+このような手順で、C/C++言語で書かれたライブラリとmruby/cの連携を図ることができます。
+連携方法の全てを記事中で説明するのは難しいですが、より詳しい情報はmruby/cのヘッダファイルの定義などを参照すると理解が進むと思います。
+
+先程も紹介した下記のリポジトリに簡単ですが、Wio LTEの通信APIなどをmruby/cのメソッド化した結果も公開しています。こちらを利用して超音波センサとWio LTEをmruby/cで動かしてみましょう。
 
 https://github.com/kishima/libmrubycForWioLTEArduino
 
@@ -340,6 +345,8 @@ Wio.sock_close(sock)
 
 puts "done"
 ```
+
+`Wio.activate`というメソッドでSORACOMのサーバとのアクティベーションを行い、`Wio.sock_send`というメソッドで測定した結果を{"distance":val}という文字列でSORACOM Harvestのサービス(`harvest.soracom.io:8514`)に送信します。
 
 このスクリプトを以下のようなmrubyのコマンドでバイトコードを16進数配列で表したC言語ファイルに変換します。
 
@@ -405,11 +412,11 @@ send:{“distance”:158}
 done
 ```
 
-SORACOMの管理画面から見た結果を下記に示します。
+３度ほどリセットを行って、値を送信した後、SORACOMの管理画面から見た結果を下記に示します。
 
 <img src="image/0059-original_mrubyc_iot_device/soracom_harvest.png" width="500">
 
-実際に測定した距離の数値が転送されていることが確認できました！
+実際に測定した距離の数値（{“distance”:158}）が転送されていることが確認できました！
 
 この先は、Soracom Beamのような機能を利用して、AWSとの連携も可能です。後は煮るなり焼くなり自由自在というわけです。
 

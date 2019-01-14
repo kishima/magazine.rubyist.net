@@ -262,11 +262,30 @@ mruby/cをポーティングしただけの状態だと、シリアルのコン�
 
 #### クラスの追加
 
+```
+	mrb_class *class_ultrasonic;
+	class_ultrasonic = mrbc_define_class(0, "UltraSonic", mrbc_class_object);
+```
 
 
 #### メソッドの追加
 
+```C
+Ultrasonic ultrasonic(WIOLTE_D38);
 
+static void class_ultrasonic_read(mrb_vm *vm, mrb_value *v, int argc ){
+	long val = ultrasonic.MeasureInCentimeters();
+	SET_INT_RETURN(val);
+}
+void define_ultrasonic_class(){
+	mrb_class *class_ultrasonic;
+	class_ultrasonic = mrbc_define_class(0, "UltraSonic", mrbc_class_object);
+
+	//method
+	mrbc_define_method(0, class_ultrasonic, "read", class_ultrasonic_read);
+
+}
+```
 ## 動かし方
 
 自分で作ったmrubyのメソッドを利用したアプリを、実際に動かしてみましょう。
@@ -299,7 +318,44 @@ end
  $ mrbc -E -B code test.rb
 ```
 
-test.cというファイルができるはずです、この内容をArduinoのinoファイルでincludeします。
+test.cというファイルができるはずです、この内容をArduinoのinoファイルで以下のように貼り付けします。
+
+```C++
+#include <libmrubyc.h>
+#include <stdint.h>
+
+const uint8_t code[] = {
+0x52,0x49,0x54,0x45,0x30,0x30,0x30,0x34,0x20,0x3e,0x00,0x00,0x01,0xa0,0x4d,0x41,
+0x54,0x5a,0x30,0x30,0x30,0x30,0x49,0x52,0x45,0x50,0x00,0x00,0x01,0x63,0x30,0x30,
+0x30,0x30,0x00,0x00,0x01,0x5b,0x00,0x03,0x00,0x08,0x00,0x00,0x00,0x00,0x00,0x21,
+（中略）
+};
+
+
+#define MEMSIZE (1024*50)
+static uint8_t mempool[MEMSIZE];
+
+
+void setup() {
+  delay(100);
+  SerialUSB.println("--- begin setup");
+  mrbc_init(mempool, MEMSIZE);
+  mrbc_define_wiolte_methods();
+  if(NULL == mrbc_create_task( code, 0 )){
+    SerialUSB.println("mrbc_create_task error");
+    return;
+  }
+  SerialUSB.println("--- run mruby script");
+  mrbc_run();
+}
+
+void loop() {
+  delay(1000);
+}
+```
+
+`mrbc_create_task()`という関数でバイトコードが格納された配列を読み込み、`mrbc_run()`で実際にVMで処理を行っています。
+
 準備ができたら、Wio LTEを接続して、DFUモードに切り替えた後、ArduinoIDEの書き込みボタンをクリックして、ビルド＆書き込みを行います。
 
 DFUモードでは、通常のプログラムは起動せず、プログラムの書き込みを待ち受ける状態になります。
@@ -327,6 +383,9 @@ SORACOMの管理画面から見た結果を下記に示します。
 実際に測定した距離の数値が転送されていることが確認できました！
 
 この先は、Soracom Beamのような機能を利用して、AWSとの連携も可能です。後は煮るなり焼くなり自由自在というわけです。
+
+今回はとりあえず動かすためにバイトコードをコピペしたりしていますが、そのあたりの開発フローの効率化のために、@hasumikin さんのmrubyc-utilsというツールもありますので、興味のあるの方は御覧ください。
+https://github.com/hasumikin/mrubyc-utils
 
 ## まとめ
 

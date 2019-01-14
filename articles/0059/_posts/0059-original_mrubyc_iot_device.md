@@ -86,6 +86,8 @@ mruby/cはmrubyのバイトコードをそのまま用いることを前提と�
 
 SIMは、個人でも簡単に手に入って、初期費用も安いSORACOM Air SIMを利用します。
 
+またPCにはArduinoIDEがインストールされており、ビルド済みのmrubyのバイナリが存在することを前提とします。
+
 ### WioLTEの説明
 
 通信ボードの[Wio LTE JP version](https://soracom.jp/products/module/wio_lte/)について説明します。本記事では以降、Wio LTE JP versionのことを、特に断りの無い限りWio LTEと呼びます。
@@ -108,16 +110,15 @@ Wio LTEは日本向けにArduinoのライブラリが公開されていて、説
 https://github.com/SeeedJP/WioLTEforArduino/wiki/Home-ja
 
 開発環境としては、ArduinoIDEを使うのが最もお手軽かと思います。
-下記の資料がわかりやすいです。
+導入については、下記の資料がわかりやすいです。
 https://github.com/soracom/handson/wiki/Wio-LTE-%E3%83%8F%E3%83%B3%E3%82%BA%E3%82%AA%E3%83%B3
+
+こちらの手順に従って、WioLTEにソフトを書き込める状態にしましょう。
 
 **！注意！**
 
-本記事で用いているWio LTE JP versionは、2019年1月現在、各種通販サイトで在庫切れとなっています。
-[Wio LTE M1/NB1(BG96)](https://soracom.jp/products/module/wio_lte_m1_nb1/)というボードが後継と思われるので、そちらの利用をご検討ください。
-筆者の環境では未確認ですが、本記事の内容はだいたい適用できるかと思います。
-[@matsujirushiさんのQiitaなどをご参照ください](https://qiita.com/matsujirushi/items/fa92b9cef36b3b3ba3c4?fbclid=IwAR2jSW3zRHKZjRYlUvTRIqdxK_fVJXh5eBXBcY63NzJibp1GgieXzPkPMAQ)
-
+本記事で用いているWio LTE JP versionは、2019年1月現在、秋月電子などで在庫がありませんが、SORACOMのサイト経由で購入が可能なようです。その他にも、[Wio LTE M1/NB1(BG96)](https://soracom.jp/products/module/wio_lte_m1_nb1/)というボードもあります。そちらの利用もご検討ください。
+筆者の環境ではWio LTE M1/NB1(BG96)は動作未確認ですが、本記事の内容はだいたい適用できるかと思います。
 
 ### SORACOM Air SIM for セルラーの説明
 
@@ -129,6 +130,8 @@ https://soracom.jp/services/air/
 基本的にはAmazonなどで購入して、公式サイトの手順に従ってWeb画面上で開通処理を行うだけですぐ使えるようになります。
 通信費も安いので、個人でちょっと試したい場合にも気軽に使えると思います。
 
+こちらもあらかじめ開通の手続きが完了していることを前提とします。
+
 ## 実装方法
 
 ここからが本題です。
@@ -137,12 +140,62 @@ https://soracom.jp/services/air/
 
 ### mruby/cのポーテイング
 
-Arduino環境にmruby/cを移植するのは以下のようなステップを踏みます。
+Arduino環境にmruby/cを移植するためには以下のようなステップを踏みます。
 
-* mruby/cのリポジトリの取得
-  https:// から取得します。
-* Arduinoのライブラリとして登録
-* コンパイルエラーの除去
+#### mruby/cのリポジトリの取得
+
+https://github.com/mrubyc/mrubyc からmruby/cのソースコードを取得します。
+2019年1月時点ではVersion1.2が最新のリリースバージョンです。
+ここではmasterの最新(2019/1/8:f864d19)を使ってみます。
+（ArduinoIDEでのコンパイルエラーを避ける[bug fix](https://github.com/mrubyc/mrubyc/commit/40528070b2307ac91ef6650e0696deac160f913a)を使いたいためです）
+
+#### Arduinoのライブラリの作成
+
+まず、Arduinoのライブラリを作成します。
+例えばMacの場合、"~/Documents/Arduino/libraries/"のようなディレクトリの下に"libmrubycForWioLTEArduino"というディレクトリを作成して、以下のような構成にします。
+
+```
+ libmrubycForWioLTEArduino/
+  |- library.properties
+  |- src/
+```
+
+library.propertiesは、Arduino用のライブラリの設定ファイルです。
+例えば以下のような内容を書き込みます。
+
+```
+name=mruby/c for Wio LTE
+version=0.0.0
+author=kishima
+maintainer=kishima
+sentence=mruby/c implementation for Wio LTE.
+paragraph=
+category=Communication
+url=https://github.com/kishima/libmrubycForWioLTEArduino
+architectures=Seeed_STM32F4
+includes=libmrubyc.h
+```
+
+このような内容を書き込むことで、ArduinoIDEのライブラリとして認識されるようになります。
+
+#### ソースのコピー
+
+取得したmruby/cのソースのから、src/配下のファイルを、先程作成したlibmrubycForWioLTEArduino/src にコピーします。
+
+mruby/cのsrcには、hal_***というディレクトリが含まれていますが、これは、各種のボードに依存している機能を切り出しものです。halは"Hardware Abstraction Layer"の略（のはず）です。
+以下のように対応します。
+
+ * hal_posix/をhal/にリネームする
+ * その他のhal_***/は削除する
+
+#### HALの実装
+
+コンソールの文字列出力が@<code>{hal.h}にインライン関数@<code>{hal_write}として定義されているのですが、中身は@<code>{write(1, buf, nbytes);}となっていて、そのままでは期待通り動きません。
+
+コンソールの文字列の出力先をどこにするかは、ライブラリの使用者が自由に決めてHAL(Hardware Abstraction Layer)として実装することが必要です。
+
+筆者のライブラリでは、Serial.printを使った出力に繋いでいます。
+注意点として、ArduinoのAPIはC++で実装されているので、hal.cからは直接呼べません。hal.cppを準備するなどして、CとC++の間を繋ぐ必要があります。
 
 実際にポーティングした結果のソースコードを下記のリポジトリにアップしています。
 
@@ -194,7 +247,7 @@ DFUモードでは、通常のプログラムは起動せず、プログラム�
 動かしてみた結果のシリアルログを示します。
 
 
-SORACOMの管理画面から見た閣下を下記に示します。
+SORACOMの管理画面から見た結果sを下記に示します。
 
 実際に測定した距離の数値が転送されていることが確認できました！
 
